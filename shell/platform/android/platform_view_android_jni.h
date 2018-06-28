@@ -29,6 +29,8 @@ void FlutterViewUpdateSemantics(JNIEnv* env,
 
 void FlutterViewOnFirstFrame(JNIEnv* env, jobject obj);
 
+void FlutterViewOnStarted(JNIEnv* env, jobject obj, jboolean success);
+
 void SurfaceTextureAttachToGLContext(JNIEnv* env, jobject obj, jint textureId);
 
 void SurfaceTextureUpdateTexImage(JNIEnv* env, jobject obj);
