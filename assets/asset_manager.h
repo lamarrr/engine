@@ -1,4 +1,4 @@
-// Copyright 2017 The Flutter Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,34 +13,71 @@
 #include "flutter/fml/macros.h"
 #include "flutter/fml/memory/ref_counted.h"
 
-namespace blink {
+namespace flutter {
 
-class AssetManager final : public AssetResolver,
-                           public fml::RefCountedThreadSafe<AssetManager> {
+class AssetManager final : public AssetResolver {
  public:
+  AssetManager();
+
+  ~AssetManager() override;
+
   void PushFront(std::unique_ptr<AssetResolver> resolver);
 
   void PushBack(std::unique_ptr<AssetResolver> resolver);
 
-  // |blink::AssetResolver|
+  //--------------------------------------------------------------------------
+  /// @brief      Replaces an asset resolver of the specified `type` with
+  ///             `updated_asset_resolver`. The matching AssetResolver is
+  ///             removed and replaced with `updated_asset_resolvers`.
+  ///
+  ///             AssetResolvers should be updated when the existing resolver
+  ///             becomes obsolete and a newer one becomes available that
+  ///             provides updated access to the same type of assets as the
+  ///             existing one. This update process is meant to be performed
+  ///             at runtime.
+  ///
+  ///             If a null resolver is provided, nothing will be done. If no
+  ///             matching resolver is found, the provided resolver will be
+  ///             added to the end of the AssetManager resolvers queue. The
+  ///             replacement only occurs with the first matching resolver.
+  ///             Any additional matching resolvers are untouched.
+  ///
+  /// @param[in]  updated_asset_resolver  The asset resolver to replace the
+  ///             resolver of matching type with.
+  ///
+  /// @param[in]  type  The type of AssetResolver to update. Only resolvers of
+  ///                   the specified type will be replaced by the updated
+  ///                   resolver.
+  ///
+  void UpdateResolverByType(
+      std::unique_ptr<AssetResolver> updated_asset_resolver,
+      AssetResolver::AssetResolverType type);
+
+  std::deque<std::unique_ptr<AssetResolver>> TakeResolvers();
+
+  // |AssetResolver|
   bool IsValid() const override;
 
-  // |blink::AssetResolver|
+  // |AssetResolver|
+  bool IsValidAfterAssetManagerChange() const override;
+
+  // |AssetResolver|
+  AssetResolver::AssetResolverType GetType() const override;
+
+  // |AssetResolver|
   std::unique_ptr<fml::Mapping> GetAsMapping(
       const std::string& asset_name) const override;
+
+  // |AssetResolver|
+  std::vector<std::unique_ptr<fml::Mapping>> GetAsMappings(
+      const std::string& asset_pattern) const override;
 
  private:
   std::deque<std::unique_ptr<AssetResolver>> resolvers_;
 
-  AssetManager();
-
-  ~AssetManager();
-
   FML_DISALLOW_COPY_AND_ASSIGN(AssetManager);
-  FML_FRIEND_MAKE_REF_COUNTED(AssetManager);
-  FML_FRIEND_REF_COUNTED_THREAD_SAFE(AssetManager);
 };
 
-}  // namespace blink
+}  // namespace flutter
 
 #endif  // FLUTTER_ASSETS_ASSET_MANAGER_H_

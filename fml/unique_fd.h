@@ -1,4 +1,4 @@
-// Copyright 2018 The Flutter Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,13 @@
 #include "flutter/fml/unique_object.h"
 
 #if OS_WIN
-
 #include <windows.h>
-
+#include <map>
+#include <mutex>
+#include <optional>
+#else  // OS_WIN
+#include <dirent.h>
+#include <unistd.h>
 #endif  // OS_WIN
 
 namespace fml {
@@ -19,19 +23,55 @@ namespace internal {
 
 #if OS_WIN
 
-namespace win {
+namespace os_win {
 
-struct UniqueFDTraits {
-  static HANDLE InvalidValue() { return INVALID_HANDLE_VALUE; }
-  static bool IsValid(HANDLE value) { return value != InvalidValue(); }
-  static void Free(HANDLE fd);
+struct DirCacheEntry {
+  std::wstring filename;
+  FILE_ID_128 id;
 };
 
-}  // namespace win
+// The order of these is important.  Must come before UniqueFDTraits struct
+// else linker error.  Embedding in struct also causes linker error.
+
+struct UniqueFDTraits {
+  static std::mutex file_map_mutex;
+  static std::map<HANDLE, DirCacheEntry> file_map;
+
+  static HANDLE InvalidValue() { return INVALID_HANDLE_VALUE; }
+  static bool IsValid(HANDLE value) { return value != InvalidValue(); }
+  static void Free_Handle(HANDLE fd);
+
+  static void Free(HANDLE fd) {
+    RemoveCacheEntry(fd);
+
+    UniqueFDTraits::Free_Handle(fd);
+  }
+
+  static void RemoveCacheEntry(HANDLE fd) {
+    const std::lock_guard<std::mutex> lock(file_map_mutex);
+
+    file_map.erase(fd);
+  }
+
+  static void StoreCacheEntry(HANDLE fd, DirCacheEntry state) {
+    const std::lock_guard<std::mutex> lock(file_map_mutex);
+    file_map[fd] = state;
+  }
+
+  static std::optional<DirCacheEntry> GetCacheEntry(HANDLE fd) {
+    const std::lock_guard<std::mutex> lock(file_map_mutex);
+    auto found = file_map.find(fd);
+    return found == file_map.end()
+               ? std::nullopt
+               : std::optional<DirCacheEntry>{found->second};
+  }
+};
+
+}  // namespace os_win
 
 #else  // OS_WIN
 
-namespace unix {
+namespace os_unix {
 
 struct UniqueFDTraits {
   static int InvalidValue() { return -1; }
@@ -39,7 +79,13 @@ struct UniqueFDTraits {
   static void Free(int fd);
 };
 
-}  // namespace unix
+struct UniqueDirTraits {
+  static DIR* InvalidValue() { return nullptr; }
+  static bool IsValid(DIR* value) { return value != nullptr; }
+  static void Free(DIR* dir);
+};
+
+}  // namespace os_unix
 
 #endif  // OS_WIN
 
@@ -47,11 +93,12 @@ struct UniqueFDTraits {
 
 #if OS_WIN
 
-using UniqueFD = UniqueObject<HANDLE, internal::win::UniqueFDTraits>;
+using UniqueFD = UniqueObject<HANDLE, internal::os_win::UniqueFDTraits>;
 
 #else  // OS_WIN
 
-using UniqueFD = UniqueObject<int, internal::unix::UniqueFDTraits>;
+using UniqueFD = UniqueObject<int, internal::os_unix::UniqueFDTraits>;
+using UniqueDir = UniqueObject<DIR*, internal::os_unix::UniqueDirTraits>;
 
 #endif  // OS_WIN
 

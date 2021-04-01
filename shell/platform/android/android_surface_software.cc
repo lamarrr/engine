@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,15 @@
 #include <memory>
 #include <vector>
 
+#include "flutter/fml/logging.h"
 #include "flutter/fml/platform/android/jni_weak_ref.h"
 #include "flutter/fml/platform/android/scoped_java_ref.h"
 #include "flutter/fml/trace_event.h"
-#include "flutter/shell/platform/android/platform_view_android_jni.h"
-#include "lib/fxl/logging.h"
+#include "flutter/shell/platform/android/android_shell_holder.h"
+#include "flutter/shell/platform/android/jni/platform_view_android_jni.h"
+#include "third_party/skia/include/core/SkImage.h"
 
-namespace shell {
+namespace flutter {
 
 namespace {
 
@@ -36,7 +38,10 @@ bool GetSkColorType(int32_t buffer_format,
 
 }  // anonymous namespace
 
-AndroidSurfaceSoftware::AndroidSurfaceSoftware() {
+AndroidSurfaceSoftware::AndroidSurfaceSoftware(
+    const std::shared_ptr<AndroidContext>& android_context,
+    std::shared_ptr<PlatformViewAndroidJNI> jni_facade)
+    : AndroidSurface(android_context) {
   GetSkColorType(WINDOW_FORMAT_RGBA_8888, &target_color_type_,
                  &target_alpha_type_);
 }
@@ -52,12 +57,20 @@ bool AndroidSurfaceSoftware::ResourceContextMakeCurrent() {
   return false;
 }
 
-std::unique_ptr<Surface> AndroidSurfaceSoftware::CreateGPUSurface() {
+bool AndroidSurfaceSoftware::ResourceContextClearCurrent() {
+  return false;
+}
+
+std::unique_ptr<Surface> AndroidSurfaceSoftware::CreateGPUSurface(
+    // The software AndroidSurface neither uses any passed in Skia context
+    // nor does it interact with the AndroidContext's raster Skia context.
+    GrDirectContext* gr_context) {
   if (!IsValid()) {
     return nullptr;
   }
 
-  auto surface = std::make_unique<GPUSurfaceSoftware>(this);
+  auto surface =
+      std::make_unique<GPUSurfaceSoftware>(this, true /* render to surface */);
 
   if (!surface->IsValid()) {
     return nullptr;
@@ -79,8 +92,9 @@ sk_sp<SkSurface> AndroidSurfaceSoftware::AcquireBackingStore(
     return sk_surface_;
   }
 
-  SkImageInfo image_info = SkImageInfo::Make(
-      size.fWidth, size.fHeight, target_color_type_, target_alpha_type_);
+  SkImageInfo image_info =
+      SkImageInfo::Make(size.fWidth, size.fHeight, target_color_type_,
+                        target_alpha_type_, SkColorSpace::MakeSRGB());
 
   sk_surface_ = SkSurface::MakeRaster(image_info);
 
@@ -117,9 +131,10 @@ bool AndroidSurfaceSoftware::PresentBackingStore(
     if (canvas) {
       SkBitmap bitmap;
       if (bitmap.installPixels(pixmap)) {
-        canvas->drawBitmapRect(
-            bitmap, SkRect::MakeIWH(native_buffer.width, native_buffer.height),
-            nullptr);
+        canvas->drawImageRect(
+            bitmap.asImage(),
+            SkRect::MakeIWH(native_buffer.width, native_buffer.height),
+            SkSamplingOptions());
       }
     }
   }
@@ -131,12 +146,12 @@ bool AndroidSurfaceSoftware::PresentBackingStore(
 
 void AndroidSurfaceSoftware::TeardownOnScreenContext() {}
 
-bool AndroidSurfaceSoftware::OnScreenSurfaceResize(const SkISize& size) const {
+bool AndroidSurfaceSoftware::OnScreenSurfaceResize(const SkISize& size) {
   return true;
 }
 
 bool AndroidSurfaceSoftware::SetNativeWindow(
-    fxl::RefPtr<AndroidNativeWindow> window) {
+    fml::RefPtr<AndroidNativeWindow> window) {
   native_window_ = std::move(window);
   if (!(native_window_ && native_window_->IsValid()))
     return false;
@@ -148,4 +163,4 @@ bool AndroidSurfaceSoftware::SetNativeWindow(
   return true;
 }
 
-}  // namespace shell
+}  // namespace flutter

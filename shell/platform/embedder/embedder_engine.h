@@ -1,4 +1,4 @@
-// Copyright 2017 The Flutter Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,48 +6,110 @@
 #define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_ENGINE_H_
 
 #include <memory>
+#include <unordered_map>
 
+#include "flutter/fml/macros.h"
 #include "flutter/shell/common/shell.h"
 #include "flutter/shell/common/thread_host.h"
 #include "flutter/shell/platform/embedder/embedder.h"
-#include "lib/fxl/macros.h"
+#include "flutter/shell/platform/embedder/embedder_external_texture_resolver.h"
+#include "flutter/shell/platform/embedder/embedder_thread_host.h"
+namespace flutter {
 
-namespace shell {
+struct ShellArgs;
 
 // The object that is returned to the embedder as an opaque pointer to the
 // instance of the Flutter engine.
 class EmbedderEngine {
  public:
-  EmbedderEngine(ThreadHost thread_host, blink::TaskRunners task_runners,
-                 blink::Settings settings,
+  EmbedderEngine(std::unique_ptr<EmbedderThreadHost> thread_host,
+                 TaskRunners task_runners,
+                 Settings settings,
+                 RunConfiguration run_configuration,
                  Shell::CreateCallback<PlatformView> on_create_platform_view,
-                 Shell::CreateCallback<Rasterizer> on_create_rasterizer);
+                 Shell::CreateCallback<Rasterizer> on_create_rasterizer,
+                 std::unique_ptr<EmbedderExternalTextureResolver>
+                     external_texture_resolver);
 
   ~EmbedderEngine();
+
+  bool LaunchShell();
+
+  bool CollectShell();
+
+  const TaskRunners& GetTaskRunners() const;
 
   bool NotifyCreated();
 
   bool NotifyDestroyed();
 
-  bool Run(RunConfiguration run_configuration);
+  bool RunRootIsolate();
 
   bool IsValid() const;
 
-  bool SetViewportMetrics(blink::ViewportMetrics metrics);
+  bool SetViewportMetrics(flutter::ViewportMetrics metrics);
 
   bool DispatchPointerDataPacket(
-      std::unique_ptr<blink::PointerDataPacket> packet);
+      std::unique_ptr<flutter::PointerDataPacket> packet);
 
-  bool SendPlatformMessage(fxl::RefPtr<blink::PlatformMessage> message);
+  //----------------------------------------------------------------------------
+  /// @brief      Notifies the platform view that the embedder has sent it a key
+  ///             data packet. A key data packet contains one key event. This
+  ///             call originates in the platform view and the shell has
+  ///             forwarded the same to the engine on the UI task runner here.
+  ///             The platform view will decide whether to handle this event,
+  ///             and send the result using `callback`, which will be called
+  ///             exactly once.
+  ///
+  /// @param[in]  packet    The key data packet.
+  /// @param[in]  callback  Called when the framework has decided whether
+  ///                       to handle this key data.
+  ///
+  bool DispatchKeyDataPacket(std::unique_ptr<flutter::KeyDataPacket> packet,
+                             KeyDataResponse callback);
+
+  bool SendPlatformMessage(fml::RefPtr<flutter::PlatformMessage> message);
+
+  bool RegisterTexture(int64_t texture);
+
+  bool UnregisterTexture(int64_t texture);
+
+  bool MarkTextureFrameAvailable(int64_t texture);
+
+  bool SetSemanticsEnabled(bool enabled);
+
+  bool SetAccessibilityFeatures(int32_t flags);
+
+  bool DispatchSemanticsAction(int id,
+                               flutter::SemanticsAction action,
+                               std::vector<uint8_t> args);
+
+  bool OnVsyncEvent(intptr_t baton,
+                    fml::TimePoint frame_start_time,
+                    fml::TimePoint frame_target_time);
+
+  bool ReloadSystemFonts();
+
+  bool PostRenderThreadTask(const fml::closure& task);
+
+  bool RunTask(const FlutterTask* task);
+
+  bool PostTaskOnEngineManagedNativeThreads(
+      std::function<void(FlutterNativeThreadType)> closure) const;
+
+  Shell& GetShell();
 
  private:
-  const ThreadHost thread_host_;
+  const std::unique_ptr<EmbedderThreadHost> thread_host_;
+  TaskRunners task_runners_;
+  RunConfiguration run_configuration_;
+  std::unique_ptr<ShellArgs> shell_args_;
   std::unique_ptr<Shell> shell_;
-  bool is_valid_ = false;
+  std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver_;
 
-  FXL_DISALLOW_COPY_AND_ASSIGN(EmbedderEngine);
+  FML_DISALLOW_COPY_AND_ASSIGN(EmbedderEngine);
 };
 
-}  // namespace shell
+}  // namespace flutter
 
 #endif  // FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_ENGINE_H_

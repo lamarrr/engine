@@ -1,4 +1,4 @@
-// Copyright 2018 The Flutter Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,23 +11,30 @@ namespace internal {
 
 #if OS_WIN
 
-namespace win {
+namespace os_win {
 
-void UniqueFDTraits::Free(HANDLE fd) {
+std::mutex UniqueFDTraits::file_map_mutex;
+std::map<HANDLE, DirCacheEntry> UniqueFDTraits::file_map;
+
+void UniqueFDTraits::Free_Handle(HANDLE fd) {
   CloseHandle(fd);
 }
 
-}  // namespace win
+}  // namespace os_win
 
 #else  // OS_WIN
 
-namespace unix {
+namespace os_unix {
 
 void UniqueFDTraits::Free(int fd) {
-  FML_IGNORE_EINTR(fd);
+  close(fd);
 }
 
-}  // namespace unix
+void UniqueDirTraits::Free(DIR* dir) {
+  closedir(dir);
+}
+
+}  // namespace os_unix
 
 #endif  // OS_WIN
 

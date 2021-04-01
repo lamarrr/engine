@@ -1,4 +1,4 @@
-// Copyright 2017 The Flutter Authors. All rights reserved.
+// Copyright 2013 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,17 @@
 #include <mutex>
 #include <queue>
 
+#include "flutter/fml/memory/ref_counted.h"
 #include "flutter/fml/memory/weak_ptr.h"
 #include "flutter/fml/task_runner.h"
-#include "lib/fxl/memory/ref_ptr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/gpu/GrDirectContext.h"
 
-namespace flow {
+namespace flutter {
 
-// A queue that holds Skia objects that must be destructed on the the given task
+// A queue that holds Skia objects that must be destructed on the given task
 // runner.
-class SkiaUnrefQueue : public fxl::RefCountedThreadSafe<SkiaUnrefQueue> {
+class SkiaUnrefQueue : public fml::RefCountedThreadSafe<SkiaUnrefQueue> {
  public:
   void Unref(SkRefCnt* object);
 
@@ -29,20 +30,25 @@ class SkiaUnrefQueue : public fxl::RefCountedThreadSafe<SkiaUnrefQueue> {
   void Drain();
 
  private:
-  const fxl::RefPtr<fxl::TaskRunner> task_runner_;
-  const fxl::TimeDelta drain_delay_;
+  const fml::RefPtr<fml::TaskRunner> task_runner_;
+  const fml::TimeDelta drain_delay_;
   std::mutex mutex_;
   std::deque<SkRefCnt*> objects_;
   bool drain_pending_;
+  fml::WeakPtr<GrDirectContext> context_;
 
-  SkiaUnrefQueue(fxl::RefPtr<fxl::TaskRunner> task_runner,
-                 fxl::TimeDelta delay);
+  // The `GrDirectContext* context` is only used for signaling Skia to
+  // performDeferredCleanup. It can be nullptr when such signaling is not needed
+  // (e.g., in unit tests).
+  SkiaUnrefQueue(fml::RefPtr<fml::TaskRunner> task_runner,
+                 fml::TimeDelta delay,
+                 fml::WeakPtr<GrDirectContext> context = {});
 
   ~SkiaUnrefQueue();
 
-  FRIEND_REF_COUNTED_THREAD_SAFE(SkiaUnrefQueue);
-  FRIEND_MAKE_REF_COUNTED(SkiaUnrefQueue);
-  FXL_DISALLOW_COPY_AND_ASSIGN(SkiaUnrefQueue);
+  FML_FRIEND_REF_COUNTED_THREAD_SAFE(SkiaUnrefQueue);
+  FML_FRIEND_MAKE_REF_COUNTED(SkiaUnrefQueue);
+  FML_DISALLOW_COPY_AND_ASSIGN(SkiaUnrefQueue);
 };
 
 /// An object whose deallocation needs to be performed on an specific unref
@@ -54,14 +60,11 @@ class SkiaGPUObject {
   using SkiaObjectType = T;
 
   SkiaGPUObject() = default;
-
-  SkiaGPUObject(sk_sp<SkiaObjectType> object, fxl::RefPtr<SkiaUnrefQueue> queue)
+  SkiaGPUObject(sk_sp<SkiaObjectType> object, fml::RefPtr<SkiaUnrefQueue> queue)
       : object_(std::move(object)), queue_(std::move(queue)) {
-    FXL_DCHECK(queue_ && object_);
+    FML_DCHECK(object_);
   }
-
   SkiaGPUObject(SkiaGPUObject&&) = default;
-
   ~SkiaGPUObject() { reset(); }
 
   SkiaGPUObject& operator=(SkiaGPUObject&&) = default;
@@ -69,20 +72,20 @@ class SkiaGPUObject {
   sk_sp<SkiaObjectType> get() const { return object_; }
 
   void reset() {
-    if (object_) {
+    if (object_ && queue_) {
       queue_->Unref(object_.release());
     }
     queue_ = nullptr;
-    FXL_DCHECK(object_ == nullptr);
+    FML_DCHECK(object_ == nullptr);
   }
 
  private:
   sk_sp<SkiaObjectType> object_;
-  fxl::RefPtr<SkiaUnrefQueue> queue_;
+  fml::RefPtr<SkiaUnrefQueue> queue_;
 
-  FXL_DISALLOW_COPY_AND_ASSIGN(SkiaGPUObject);
+  FML_DISALLOW_COPY_AND_ASSIGN(SkiaGPUObject);
 };
 
-}  // namespace flow
+}  // namespace flutter
 
 #endif  // FLUTTER_FLOW_SKIA_GPU_OBJECT_H_
